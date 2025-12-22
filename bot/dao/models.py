@@ -50,6 +50,7 @@ class DiningTable(Base):
     __tablename__ = "tables"
 
     name: Mapped[str] = mapped_column(Text, nullable=False)
+    invite_code: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
 
     table_items: Mapped[List["TableItem"]] = relationship(
         "TableItem", back_populates="table", cascade="all, delete-orphan"
@@ -63,7 +64,7 @@ class DiningTable(Base):
     )
 
     def __repr__(self):
-        return f"<DiningTable(id={self.id}, name='{self.name}')>"
+        return f"<DiningTable(id={self.id}, name='{self.name}', invite_code='{self.invite_code}')>"
 
 
 class Item(Base):
@@ -71,6 +72,8 @@ class Item(Base):
 
     name: Mapped[str] = mapped_column(Text, nullable=False)
     price: Mapped[int] = mapped_column(Integer, nullable=False)
+    is_income: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    created_by_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
 
     tables: Mapped[List[DiningTable]] = relationship(
         "DiningTable", secondary="table_items", back_populates="items", viewonly=True
@@ -83,7 +86,7 @@ class Item(Base):
     )
 
     def __repr__(self):
-        return f"<Item(id={self.id}, name='{self.name}', price={self.price})>"
+        return f"<Item(id={self.id}, name='{self.name}', price={self.price}, is_income={self.is_income})>"
 
 
 class TableItem(Base):
@@ -119,7 +122,7 @@ class Transaction(Base):
     table_id: Mapped[Optional[int]] = mapped_column(ForeignKey("tables.id"))
     user_id_from: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
     user_id_to: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
-    amount: Mapped[int] = mapped_column(Integer, nullable=False)  # amount in cents
+    amount: Mapped[int] = mapped_column(Integer, nullable=False)
 
     user_from: Mapped[User] = relationship(
         "User", foreign_keys=[user_id_from], back_populates="transactions_from"
