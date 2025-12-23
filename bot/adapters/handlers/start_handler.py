@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.adapters.keyboards import get_main_menu_keyboard
 from bot.use_cases.user_use_cases import UserUseCase
+from bot.use_cases.table_use_cases import TableUseCase
 
 router = Router()
 

@@ -31,7 +31,7 @@ class TableUseCase:
         result = await self.session.execute(
             select(DiningTable).filter(DiningTable.invite_code == invite_code)
         )
-        return result.scalar_one_or_none() is None
+        return len(result.scalars().all()) == 0
 
     async def create_table(self, name: str, creator_id: int) -> tuple[int, str]:
         invite_code = self._generate_invite_code()
