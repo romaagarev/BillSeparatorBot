@@ -6,6 +6,7 @@ from aiogram import Bot, Dispatcher
 from aiogram.enums import ParseMode
 from aiogram.client.default import DefaultBotProperties
 from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.exceptions import TelegramNetworkError
 
 from bot.config import settings
 from bot.dao.database import engine, Base
@@ -20,31 +21,60 @@ async def create_tables():
 
 
 async def main():
-    logger.info("Starting bot...")
+    retry_delay = 5
+    max_retry_delay = 60
     
     await create_tables()
     
-    bot = Bot(
-        token=settings.BOT_TOKEN,
-        default=DefaultBotProperties(parse_mode=ParseMode.HTML)
-    )
-    dp = Dispatcher(storage=MemoryStorage())
-    
-    dp.message.middleware(DatabaseMiddleware())
-    dp.callback_query.middleware(DatabaseMiddleware())
-    
-    dp.include_router(start_handler.router)
-    dp.include_router(table_handler.router)
-    dp.include_router(expense_handler.router)
-    
-    logger.info("Bot started successfully")
+    while True:
+        bot = None
+        try:
+            logger.info("Starting bot...")
+            
+            bot = Bot(
+                token=settings.BOT_TOKEN,
+                default=DefaultBotProperties(parse_mode=ParseMode.HTML)
+            )
+            dp = Dispatcher(storage=MemoryStorage())
+            
+            dp.message.middleware(DatabaseMiddleware())
+            dp.callback_query.middleware(DatabaseMiddleware())
+            
+            dp.include_router(start_handler.router)
+            dp.include_router(table_handler.router)
+            dp.include_router(expense_handler.router)
+            
+            logger.info("Bot started successfully")
+            
+            await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
+            
+        except TelegramNetworkError as e:
+            logger.error(f"Network error: {e}. Retrying in {retry_delay} seconds...")
+            await asyncio.sleep(retry_delay)
+            retry_delay = min(retry_delay * 2, max_retry_delay)
+            
+        except KeyboardInterrupt:
+            logger.info("Bot stopped by user")
+            break
+            
+        except Exception as e:
+            logger.error(f"Unexpected error: {e}. Retrying in {retry_delay} seconds...")
+            await asyncio.sleep(retry_delay)
+            retry_delay = min(retry_delay * 2, max_retry_delay)
+            
+        finally:
+            if bot:
+                try:
+                    await bot.session.close()
+                    logger.info("Bot session closed")
+                except:
+                    pass
     
     try:
-        await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
-    finally:
-        await bot.session.close()
         await engine.dispose()
-        logger.info("Bot stopped")
+        logger.info("Database engine disposed")
+    except:
+        pass
 
 
 if __name__ == "__main__":
