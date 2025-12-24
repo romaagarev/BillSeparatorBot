@@ -20,6 +20,7 @@ class User(Base):
     last_name: Mapped[Optional[str]]
     phone_number: Mapped[Optional[str]] = mapped_column(Text)
     link_to_pay: Mapped[Optional[str]] = mapped_column(Text)
+    timezone: Mapped[Optional[str]] = mapped_column(Text, default="Europe/Moscow")
 
     table_links: Mapped[List["TableUser"]] = relationship(
         "TableUser", back_populates="user", cascade="all, delete-orphan"

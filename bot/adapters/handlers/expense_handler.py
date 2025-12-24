@@ -40,10 +40,10 @@ async def transaction_type_selected(callback: CallbackQuery, state: FSMContext):
     is_income = callback.data == "income"
     await state.update_data(is_income=is_income)
     
-    transaction_type = "дохода" if is_income else "расхода"
+    transaction_type = "оплаты" if is_income else "расхода"
     await state.set_state(ExpenseStates.waiting_for_item_name)
     await callback.message.edit_text(
-        f"Введите название {transaction_type} (например, '{'Зарплата' if is_income else 'Пицца'}'):"
+        f"Введите название {transaction_type} (например, '{'Чек в ресторане' if is_income else 'Пицца'}'):"
     )
     await callback.message.answer(
         "Введите название:",
@@ -64,7 +64,7 @@ async def add_expense_name(message: Message, state: FSMContext):
     
     data = await state.get_data()
     is_income = data.get("is_income", False)
-    transaction_type = "дохода" if is_income else "расхода"
+    transaction_type = "оплаты" if is_income else "расхода"
     
     await message.answer(
         f"Введите сумму {transaction_type} в рублях (например, 1500):",
@@ -149,7 +149,7 @@ async def split_all_selected(callback: CallbackQuery, state: FSMContext, session
     
     await state.set_state(None)
     
-    transaction_type = "Доход" if is_income else "Расход"
+    transaction_type = "Оплата" if is_income else "Расход"
     await callback.message.edit_text(
         f"✅ {transaction_type} '{item_name}' на сумму {price/100:.2f} ₽ добавлен!\n"
         f"Сумма разделена поровну между {len(user_ids)} участниками."
@@ -194,7 +194,7 @@ async def split_me_selected(callback: CallbackQuery, state: FSMContext, session:
     
     await state.set_state(None)
     
-    transaction_type = "Доход" if is_income else "Расход"
+    transaction_type = "Оплата" if is_income else "Расход"
     await callback.message.edit_text(
         f"✅ {transaction_type} '{item_name}' на сумму {price/100:.2f} ₽ добавлен!\n"
         f"Сумма записана только на вас."
@@ -319,7 +319,7 @@ async def ratios_entered(message: Message, state: FSMContext, session: AsyncSess
     
     await state.set_state(None)
     
-    transaction_type = "Доход" if is_income else "Расход"
+    transaction_type = "Оплата" if is_income else "Расход"
     await message.answer(
         f"✅ {transaction_type} '{item_name}' на сумму {price/100:.2f} ₽ добавлен!\n"
         f"Сумма разделена между {len(selected)} участниками с указанными долями.",
@@ -357,7 +357,7 @@ async def view_balance(message: Message, state: FSMContext, session: AsyncSessio
     
     text = "💰 Ваш баланс:\n\n"
     text += f"Расходы: {balance_data['expenses']/100:.2f} ₽\n"
-    text += f"Доходы: {balance_data['income']/100:.2f} ₽\n"
+    text += f"Оплаты: {balance_data['income']/100:.2f} ₽\n"
     text += f"Баланс: {balance_data['balance']/100:.2f} ₽\n\n"
     
     if debts:
@@ -448,6 +448,9 @@ async def view_participants(message: Message, state: FSMContext, session: AsyncS
         await message.answer("Ошибка: стол не найден.")
         return
     
+    table_name = table.name
+    invite_code = table.invite_code
+    
     result = await session.execute(
         select(TableUser, User)
         .join(User, TableUser.user_id == User.id)
@@ -461,15 +464,16 @@ async def view_participants(message: Message, state: FSMContext, session: AsyncS
     
     bot = message.bot
     bot_username = (await bot.me()).username
-    invite_link = f"https://t.me/{bot_username}?start=join_{table.invite_code}"
+    invite_link = f"https://t.me/{bot_username}?start=join_{invite_code}"
     
-    text = "👥 <b>Участники стола:</b>\n\n"
+    text = f"🍽️ <b>Стол: {table_name}</b>\n\n"
+    text += "👥 <b>Участники:</b>\n\n"
     for i, (table_user, user) in enumerate(participants, 1):
         name = user.first_name or user.username or f"User {user.telegram_id}"
         text += f"{i}. {name}\n"
     
     text += f"\n🔗 <b>Ссылка для приглашения:</b>\n{invite_link}\n\n"
-    text += f"🔑 <b>Код приглашения:</b> <code>{table.invite_code}</code>\n\n"
+    text += f"🔑 <b>Код приглашения:</b> <code>{invite_code}</code>\n\n"
     text += "<i>Отправьте ссылку или код друзьям, чтобы они присоединились к столу</i>"
     
     await message.answer(text, parse_mode="HTML", reply_markup=get_table_menu_keyboard())
@@ -508,7 +512,7 @@ async def view_statistics(message: Message, state: FSMContext, session: AsyncSes
     text = "📊 Статистика стола:\n\n"
     text += f"Всего операций: {total_items}\n"
     text += f"Общие расходы: {total_expenses/100:.2f} ₽\n"
-    text += f"Общие доходы: {total_income/100:.2f} ₽\n"
+    text += f"Общие оплаты: {total_income/100:.2f} ₽\n"
     text += f"Итоговый баланс: {(total_income - total_expenses)/100:.2f} ₽\n"
     
     await message.answer(text, reply_markup=get_table_menu_keyboard())
@@ -526,13 +530,25 @@ async def view_operations_history(message: Message, state: FSMContext, session: 
         )
         return
     
+    from sqlalchemy import select
+    from bot.dao.models import User
+    from datetime import datetime, timezone, timedelta
+    
+    result = await session.execute(
+        select(User).filter_by(telegram_id=message.from_user.id)
+    )
+    user = result.scalar_one_or_none()
+    
+    user_tz_offset = timedelta(hours=3)
+    user_timezone = timezone(user_tz_offset)
+    
     expense_use_case = ExpenseUseCase(session)
     operations = await expense_use_case.get_table_operations(current_table_id)
     
     if not operations:
         await message.answer(
             "📋 История операций пуста.\n\n"
-            "Добавьте первую операцию, чтобы начать отслеживать расходы и доходы!",
+            "Добавьте первую операцию, чтобы начать отслеживать расходы и оплаты!",
             reply_markup=get_table_menu_keyboard()
         )
         return
@@ -540,8 +556,13 @@ async def view_operations_history(message: Message, state: FSMContext, session: 
     text = "📋 <b>История операций:</b>\n\n"
     
     for i, op in enumerate(operations, 1):
-        operation_type = "💰 Доход" if op['is_income'] else "💸 Расход"
-        date_str = op['created_at'].strftime("%d.%m.%Y %H:%M") if op['created_at'] else "Дата неизвестна"
+        operation_type = "💰 Оплата" if op['is_income'] else "💸 Расход"
+        if op['created_at']:
+            utc_time = op['created_at'].replace(tzinfo=timezone.utc)
+            local_time = utc_time.astimezone(user_timezone)
+            date_str = local_time.strftime("%d.%m.%Y %H:%M")
+        else:
+            date_str = "Дата неизвестна"
         
         text += f"<b>{i}. {operation_type}: {op['name']}</b>\n"
         text += f"   Сумма: {op['price']/100:.2f} ₽\n"
@@ -568,8 +589,13 @@ async def view_operations_history(message: Message, state: FSMContext, session: 
         current_part = "📋 <b>История операций:</b>\n\n"
         
         for i, op in enumerate(operations, 1):
-            operation_type = "💰 Доход" if op['is_income'] else "💸 Расход"
-            date_str = op['created_at'].strftime("%d.%m.%Y %H:%M") if op['created_at'] else "Дата неизвестна"
+            operation_type = "💰 Оплата" if op['is_income'] else "💸 Расход"
+            if op['created_at']:
+                utc_time = op['created_at'].replace(tzinfo=timezone.utc)
+                local_time = utc_time.astimezone(user_timezone)
+                date_str = local_time.strftime("%d.%m.%Y %H:%M")
+            else:
+                date_str = "Дата неизвестна"
             
             op_text = f"<b>{i}. {operation_type}: {op['name']}</b>\n"
             op_text += f"   Сумма: {op['price']/100:.2f} ₽\n"

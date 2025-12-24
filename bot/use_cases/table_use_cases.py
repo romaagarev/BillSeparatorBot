@@ -85,3 +85,15 @@ class TableUseCase:
         )
         tables = result.scalars().all()
         return [TableEntity(name=table.name, id=table.id) for table in tables]
+
+    async def leave_table(self, table_id: int, user_id: int) -> bool:
+        from sqlalchemy import delete
+        
+        result = await self.session.execute(
+            delete(TableUser).filter(
+                TableUser.table_id == table_id,
+                TableUser.user_id == user_id
+            )
+        )
+        await self.session.commit()
+        return result.rowcount > 0

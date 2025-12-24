@@ -15,7 +15,8 @@ def get_table_menu_keyboard():
         [KeyboardButton(text="💰 Посмотреть баланс"), KeyboardButton(text="👥 Участники")],
         [KeyboardButton(text="💳 Посчитать долги"), KeyboardButton(text="📊 Статистика")],
         [KeyboardButton(text="📋 История операций")],
-        [KeyboardButton(text="🔙 Назад к столам"), KeyboardButton(text="🏠 Главное меню")],
+        [KeyboardButton(text="🚪 Покинуть стол")],
+        [KeyboardButton(text="🏠 Главное меню")],
     ]
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
 
@@ -28,11 +29,10 @@ def get_cancel_keyboard():
 
 
 def get_transaction_type_keyboard():
-    """Keyboard for selecting transaction type (expense or income)"""
     keyboard = [
         [
             InlineKeyboardButton(text="💸 Расход", callback_data="expense"),
-            InlineKeyboardButton(text="💰 Доход", callback_data="income")
+            InlineKeyboardButton(text="💰 Оплата", callback_data="income")
         ]
     ]
     return InlineKeyboardMarkup(inline_keyboard=keyboard)

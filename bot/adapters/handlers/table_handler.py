@@ -106,9 +106,12 @@ async def join_table_finish(message: Message, state: FSMContext, session: AsyncS
         )
         return
     
+    table_id = table.id
+    table_name = table.name
+    
     from bot.dao.models import TableUser
     result = await session.execute(
-        select(TableUser).filter_by(table_id=table.id, user_id=user.id)
+        select(TableUser).filter_by(table_id=table_id, user_id=user.id)
     )
     existing = result.scalar_one_or_none()
     
@@ -121,15 +124,15 @@ async def join_table_finish(message: Message, state: FSMContext, session: AsyncS
         return
     
     try:
-        await table_use_case.join_table(table.id, user.id)
+        await table_use_case.join_table(table_id, user.id)
         await state.clear()
         await message.answer(
-            f"✅ Вы успешно присоединились к столу '{table.name}'!",
+            f"✅ Вы успешно присоединились к столу '{table_name}'!",
             reply_markup=get_main_menu_keyboard()
         )
     except Exception as e:
         await message.answer(
-            f"❌ Ошибка при присоединении к столу: {str(e)}",
+            f"❌ Ошибка при присоединении к столу, попробуйте ещё раз",
             reply_markup=get_main_menu_keyboard()
         )
 
@@ -212,6 +215,56 @@ async def back_to_tables(message: Message, state: FSMContext, session: AsyncSess
         "Ваши столы:",
         reply_markup=get_tables_inline_keyboard(tables_list)
     )
+
+
+@router.message(F.text == "🚪 Покинуть стол")
+async def leave_table(message: Message, state: FSMContext, session: AsyncSession):
+    data = await state.get_data()
+    current_table_id = data.get("current_table_id")
+    
+    if not current_table_id:
+        await message.answer(
+            "Сначала выберите стол из списка 'Мои столы'",
+            reply_markup=get_main_menu_keyboard()
+        )
+        return
+    
+    from sqlalchemy import select
+    from bot.dao.models import User, DiningTable
+    
+    result = await session.execute(
+        select(User).filter_by(telegram_id=message.from_user.id)
+    )
+    user = result.scalar_one_or_none()
+    
+    if not user:
+        await message.answer("Ошибка: пользователь не найден. Используйте /start")
+        return
+    
+    result = await session.execute(
+        select(DiningTable).filter(DiningTable.id == current_table_id)
+    )
+    table = result.scalar_one_or_none()
+    
+    if not table:
+        await message.answer("Ошибка: стол не найден.")
+        return
+    
+    table_use_case = TableUseCase(session)
+    success = await table_use_case.leave_table(current_table_id, user.id)
+    
+    if success:
+        await state.update_data(current_table_id=None)
+        await message.answer(
+            f"✅ Вы покинули стол '{table.name}'.\n\n"
+            f"Теперь этот стол не будет отображаться в вашем списке.",
+            reply_markup=get_main_menu_keyboard()
+        )
+    else:
+        await message.answer(
+            "❌ Не удалось покинуть стол. Возможно, вы уже не являетесь участником.",
+            reply_markup=get_main_menu_keyboard()
+        )
 
 
 @router.message(F.text == "🏠 Главное меню")

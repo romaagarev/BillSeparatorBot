@@ -35,6 +35,10 @@ async def main():
                 token=settings.BOT_TOKEN,
                 default=DefaultBotProperties(parse_mode=ParseMode.HTML)
             )
+            
+            await bot.delete_webhook(drop_pending_updates=True)
+            logger.info("Dropped pending updates")
+            
             dp = Dispatcher(storage=MemoryStorage())
             
             dp.message.middleware(DatabaseMiddleware())
@@ -46,7 +50,10 @@ async def main():
             
             logger.info("Bot started successfully")
             
-            await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
+            await dp.start_polling(
+                bot,
+                allowed_updates=dp.resolve_used_update_types()
+            )
             
         except TelegramNetworkError as e:
             logger.error(f"Network error: {e}. Retrying in {retry_delay} seconds...")
