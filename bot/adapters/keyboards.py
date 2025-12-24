@@ -14,7 +14,7 @@ def get_table_menu_keyboard():
         [KeyboardButton(text="➕ Добавить расход")],
         [KeyboardButton(text="💰 Посмотреть баланс"), KeyboardButton(text="👥 Участники")],
         [KeyboardButton(text="💳 Посчитать долги"), KeyboardButton(text="📊 Статистика")],
-        [KeyboardButton(text="📋 История операций")],
+        [KeyboardButton(text="💸 Погасить долг"), KeyboardButton(text="📋 История операций")],
         [KeyboardButton(text="🚪 Покинуть стол")],
         [KeyboardButton(text="🏠 Главное меню")],
     ]
@@ -101,3 +101,14 @@ def get_yes_no_keyboard():
         ],
         resize_keyboard=True
     )
+
+def get_creditors_keyboard(creditors):
+    keyboard = []
+    for user_id, user_name, amount in creditors:
+        keyboard.append([
+            InlineKeyboardButton(
+                text=f"{user_name}: {amount/100:.2f} ₽",
+                callback_data=f"creditor_{user_id}"
+            )
+        ])
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)

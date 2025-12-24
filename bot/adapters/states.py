@@ -14,6 +14,10 @@ class ExpenseStates(StatesGroup):
     selecting_participants = State()
     entering_ratios = State()
 
+class PaymentStates(StatesGroup):
+    selecting_creditor = State()
+    entering_amount = State()
+
 class RegistrationState(StatesGroup):
     confirm_phone = State()
     enter_phone = State()

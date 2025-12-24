@@ -4,13 +4,14 @@ from aiogram.fsm.context import FSMContext
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.adapters.keyboards import (
-    get_cancel_keyboard, 
+    get_cancel_keyboard,
     get_table_menu_keyboard,
     get_transaction_type_keyboard,
     get_split_method_keyboard,
-    get_participants_keyboard
+    get_participants_keyboard,
+    get_creditors_keyboard
 )
-from bot.adapters.states import ExpenseStates
+from bot.adapters.states import ExpenseStates, PaymentStates
 from bot.use_cases.expense_use_cases import ExpenseUseCase
 
 router = Router()
@@ -651,3 +652,152 @@ async def view_operations_history(message: Message, state: FSMContext, session: 
         )
     else:
         await message.answer(text, parse_mode="HTML", reply_markup=get_table_menu_keyboard())
+
+
+@router.message(F.text == "💸 Погасить долг")
+async def repay_debt_start(message: Message, state: FSMContext, session: AsyncSession):
+    data = await state.get_data()
+    current_table_id = data.get("current_table_id")
+    
+    if not current_table_id:
+        await message.answer(
+            "Сначала выберите стол из списка 'Мои столы'",
+            reply_markup=get_table_menu_keyboard()
+        )
+        return
+    
+    from sqlalchemy import select
+    from bot.dao.models import User
+    
+    result = await session.execute(
+        select(User).filter_by(telegram_id=message.from_user.id)
+    )
+    user = result.scalar_one_or_none()
+    
+    if not user:
+        await message.answer("Ошибка: пользователь не найден.")
+        return
+    
+    expense_use_case = ExpenseUseCase(session)
+    debts = await expense_use_case.calculate_debts(current_table_id)
+    
+    user_debts = [(to_id, amount) for from_id, to_id, amount in debts if from_id == user.id]
+    
+    if not user_debts:
+        await message.answer(
+            "✅ У вас нет долгов!",
+            reply_markup=get_table_menu_keyboard()
+        )
+        return
+    
+    result = await session.execute(select(User))
+    users_dict = {u.id: u for u in result.scalars().all()}
+    
+    creditors = []
+    for to_id, amount in user_debts:
+        to_user = users_dict.get(to_id)
+        if to_user:
+            to_name = to_user.first_name or to_user.username or f"User {to_user.telegram_id}"
+            creditors.append((to_id, to_name, amount))
+    
+    await state.update_data(creditors=creditors)
+    await state.set_state(PaymentStates.selecting_creditor)
+    
+    await message.answer(
+        "Выберите, кому вы хотите погасить долг:",
+        reply_markup=get_creditors_keyboard(creditors)
+    )
+
+
+@router.callback_query(PaymentStates.selecting_creditor, F.data.startswith("creditor_"))
+async def creditor_selected(callback: CallbackQuery, state: FSMContext):
+    creditor_id = int(callback.data.split("_")[1])
+    
+    data = await state.get_data()
+    creditors = data.get("creditors", [])
+    
+    selected_creditor = next((c for c in creditors if c[0] == creditor_id), None)
+    
+    if not selected_creditor:
+        await callback.answer("Ошибка: кредитор не найден", show_alert=True)
+        return
+    
+    await state.update_data(selected_creditor_id=creditor_id, max_amount=selected_creditor[2])
+    await state.set_state(PaymentStates.entering_amount)
+    
+    await callback.message.edit_text(
+        f"Вы должны {selected_creditor[1]}: {selected_creditor[2]/100:.2f} ₽\n\n"
+        f"Введите сумму, которую вы погасили (в рублях):"
+    )
+    await callback.message.answer(
+        "Введите сумму:",
+        reply_markup=get_cancel_keyboard()
+    )
+    await callback.answer()
+
+
+@router.message(PaymentStates.entering_amount)
+async def payment_amount_entered(message: Message, state: FSMContext, session: AsyncSession):
+    if message.text == "❌ Отмена":
+        await state.clear()
+        await message.answer("Операция отменена.", reply_markup=get_table_menu_keyboard())
+        return
+    
+    try:
+        amount = int(float(message.text) * 100)
+    except ValueError:
+        await message.answer("Неверный формат суммы. Введите число:")
+        return
+    
+    if amount <= 0:
+        await message.answer("Сумма должна быть больше нуля. Попробуйте снова:")
+        return
+    
+    data = await state.get_data()
+    current_table_id = data.get("current_table_id")
+    selected_creditor_id = data.get("selected_creditor_id")
+    max_amount = data.get("max_amount")
+    
+    if amount > max_amount:
+        await message.answer(
+            f"⚠️ Вы ввели сумму больше долга ({max_amount/100:.2f} ₽).\n"
+            f"Будет записано {max_amount/100:.2f} ₽"
+        )
+        amount = max_amount
+    
+    from sqlalchemy import select
+    from bot.dao.models import User
+    
+    result = await session.execute(
+        select(User).filter_by(telegram_id=message.from_user.id)
+    )
+    user = result.scalar_one_or_none()
+    
+    if not user:
+        await message.answer("Ошибка: пользователь не найден.")
+        await state.clear()
+        return
+    
+    expense_use_case = ExpenseUseCase(session)
+    await expense_use_case.add_expense(
+        table_id=current_table_id,
+        item_name=f"Погашение долга",
+        price=amount,
+        user_ids=[user.id],
+        is_income=True,
+        created_by_id=user.id
+    )
+    
+    result = await session.execute(
+        select(User).filter_by(id=selected_creditor_id)
+    )
+    creditor = result.scalar_one_or_none()
+    creditor_name = creditor.first_name or creditor.username or f"User {creditor.telegram_id}" if creditor else "пользователю"
+    
+    await state.clear()
+    await state.update_data(current_table_id=current_table_id)
+    
+    await message.answer(
+        f"✅ Погашение долга на сумму {amount/100:.2f} ₽ для {creditor_name} записано!",
+        reply_markup=get_table_menu_keyboard()
+    )
