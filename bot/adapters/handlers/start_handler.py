@@ -32,7 +32,14 @@ async def cmd_start(message: Message, session: AsyncSession, state: FSMContext):
     result = await session.execute(stmt)
     user = result.scalar_one_or_none()
 
+    command_args = message.text.split(maxsplit=1)
+    invite_code = None
+    if len(command_args) > 1 and command_args[1].startswith("join_"):
+        invite_code = command_args[1][5:]
+
     if not user.phone_number or not user.link_to_pay:
+        if invite_code:
+            await state.update_data(pending_invite_code=invite_code)
 
         tg_phone = getattr(message.from_user, "phone_number", None)
 
@@ -56,18 +63,7 @@ async def cmd_start(message: Message, session: AsyncSession, state: FSMContext):
 
         return
 
-    command_args = message.text.split(maxsplit=1)
-    if len(command_args) > 1 and command_args[1].startswith("join_"):
-        invite_code = command_args[1][5:]
-
-        stmt = select(User).filter_by(telegram_id=message.from_user.id)
-        result = await session.execute(stmt)
-        user = result.scalar_one_or_none()
-
-        if not user:
-            await message.answer("Ошибка: пользователь не найден. Попробуйте /start")
-            return
-
+    if invite_code:
         table_use_case = TableUseCase(session)
         table = await table_use_case.get_table_by_code(invite_code)
 
@@ -163,7 +159,37 @@ async def enter_bank(message: Message, state: FSMContext, session: AsyncSession)
         link_to_pay=bank
     )
 
+    data = await state.get_data()
+    pending_invite_code = data.get("pending_invite_code")
+
     await state.clear()
+
+    if pending_invite_code:
+        stmt = select(User).filter_by(telegram_id=message.from_user.id)
+        result = await session.execute(stmt)
+        user = result.scalar_one_or_none()
+
+        table_use_case = TableUseCase(session)
+        table = await table_use_case.get_table_by_code(pending_invite_code)
+
+        if table and user:
+            result = await session.execute(
+                select(TableUser).filter_by(table_id=table.id, user_id=user.id)
+            )
+            existing = result.scalar_one_or_none()
+
+            if not existing:
+                try:
+                    await table_use_case.join_table(table.id, user.id)
+                    await message.answer(
+                        f"🎉 Регистрация завершена!\n\n"
+                        f"✅ Вы успешно присоединились к столу '{table.name}'!\n\n"
+                        f"Теперь вы можете добавлять расходы и просматривать баланс.",
+                        reply_markup=get_main_menu_keyboard()
+                    )
+                    return
+                except Exception:
+                    pass
 
     await message.answer(
         "🎉 Регистрация завершена!\n\n"

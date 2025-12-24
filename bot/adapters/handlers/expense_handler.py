@@ -470,7 +470,10 @@ async def view_participants(message: Message, state: FSMContext, session: AsyncS
     text += "👥 <b>Участники:</b>\n\n"
     for i, (table_user, user) in enumerate(participants, 1):
         name = user.first_name or user.username or f"User {user.telegram_id}"
-        text += f"{i}. {name}\n"
+        if user.username:
+            text += f"{i}. {name} (@{user.username})\n"
+        else:
+            text += f"{i}. {name}\n"
     
     text += f"\n🔗 <b>Ссылка для приглашения:</b>\n{invite_link}\n\n"
     text += f"🔑 <b>Код приглашения:</b> <code>{invite_code}</code>\n\n"
