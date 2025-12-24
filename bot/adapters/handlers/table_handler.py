@@ -223,6 +223,7 @@ async def leave_table(message: Message, state: FSMContext, session: AsyncSession
     current_table_id = data.get("current_table_id")
     
     if not current_table_id:
+        await state.clear()
         await message.answer(
             "Сначала выберите стол из списка 'Мои столы'",
             reply_markup=get_main_menu_keyboard()
@@ -238,6 +239,7 @@ async def leave_table(message: Message, state: FSMContext, session: AsyncSession
     user = result.scalar_one_or_none()
     
     if not user:
+        await state.clear()
         await message.answer("Ошибка: пользователь не найден. Используйте /start")
         return
     
@@ -247,14 +249,16 @@ async def leave_table(message: Message, state: FSMContext, session: AsyncSession
     table = result.scalar_one_or_none()
     
     if not table:
-        await message.answer("Ошибка: стол не найден.")
+        await state.clear()
+        await message.answer("Ошибка: стол не найден.", reply_markup=get_main_menu_keyboard())
         return
     
     table_use_case = TableUseCase(session)
     success = await table_use_case.leave_table(current_table_id, user.id)
     
+    await state.clear()
+    
     if success:
-        await state.update_data(current_table_id=None)
         await message.answer(
             f"✅ Вы покинули стол '{table.name}'.\n\n"
             f"Теперь этот стол не будет отображаться в вашем списке.",
