@@ -13,7 +13,8 @@ def get_table_menu_keyboard():
     keyboard = [
         [KeyboardButton(text="➕ Добавить расход")],
         [KeyboardButton(text="💰 Посмотреть баланс"), KeyboardButton(text="👥 Участники")],
-        [KeyboardButton(text="📋 История операций"), KeyboardButton(text="📊 Статистика")],
+        [KeyboardButton(text="💳 Посчитать долги"), KeyboardButton(text="📊 Статистика")],
+        [KeyboardButton(text="📋 История операций")],
         [KeyboardButton(text="🔙 Назад к столам"), KeyboardButton(text="🏠 Главное меню")],
     ]
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)

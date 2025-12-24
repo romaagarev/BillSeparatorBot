@@ -383,6 +383,46 @@ async def view_balance(message: Message, state: FSMContext, session: AsyncSessio
     
     await message.answer(text, reply_markup=get_table_menu_keyboard())
 
+@router.message(F.text == "💳 Посчитать долги")
+async def calculate_debts_handler(message: Message, state: FSMContext, session: AsyncSession):
+    data = await state.get_data()
+    current_table_id = data.get("current_table_id")
+    
+    if not current_table_id:
+        await message.answer(
+            "Сначала выберите стол из списка 'Мои столы'",
+            reply_markup=get_table_menu_keyboard()
+        )
+        return
+    
+    expense_use_case = ExpenseUseCase(session)
+    debts = await expense_use_case.calculate_debts(current_table_id)
+    
+    if not debts:
+        await message.answer(
+            "✅ Все расчеты завершены! Никто никому ничего не должен.",
+            reply_markup=get_table_menu_keyboard()
+        )
+        return
+    
+    from sqlalchemy import select
+    from bot.dao.models import User
+    
+    result = await session.execute(select(User))
+    users_dict = {u.id: (u.first_name or u.username or f"User {u.telegram_id}") for u in result.scalars().all()}
+    
+    text = "💳 <b>Минимизированные переводы для закрытия долгов:</b>\n\n"
+    
+    for from_id, to_id, amount in debts:
+        from_name = users_dict.get(from_id, f"User {from_id}")
+        to_name = users_dict.get(to_id, f"User {to_id}")
+        text += f"➡️ <b>{from_name}</b> → <b>{to_name}</b>: {amount/100:.2f} ₽\n"
+    
+    text += f"\n<i>Всего переводов: {len(debts)}</i>"
+    
+    await message.answer(text, parse_mode="HTML", reply_markup=get_table_menu_keyboard())
+
+
 
 @router.message(F.text == "👥 Участники")
 async def view_participants(message: Message, state: FSMContext, session: AsyncSession):
