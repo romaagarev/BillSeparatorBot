@@ -53,7 +53,6 @@ async def main():
 
     except KeyboardInterrupt:
         logger.info("Bot stopped by user")
-        break
         
     except Exception as e:
         logger.error(f"Unexpected error: {e}. Retrying in {retry_delay} seconds...")
