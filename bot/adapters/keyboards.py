@@ -93,3 +93,11 @@ def get_tables_inline_keyboard(tables_list):
         ])
     
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
+def get_yes_no_keyboard():
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="Да"), KeyboardButton(text="Нет")]
+        ],
+        resize_keyboard=True
+    )

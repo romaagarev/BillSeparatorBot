@@ -18,8 +18,8 @@ class User(Base):
     username: Mapped[Optional[str]]
     first_name: Mapped[Optional[str]]
     last_name: Mapped[Optional[str]]
-    phone_number: Mapped[Optional[str]] = mapped_column(Text)
-    link_to_pay: Mapped[Optional[str]] = mapped_column(Text)
+    phone_number: Mapped[Optional[str]]
+    link_to_pay: Mapped[Optional[str]]
     timezone: Mapped[Optional[str]] = mapped_column(Text, default="Europe/Moscow")
 
     table_links: Mapped[List["TableUser"]] = relationship(

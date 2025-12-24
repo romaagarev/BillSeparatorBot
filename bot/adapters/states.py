@@ -13,3 +13,8 @@ class ExpenseStates(StatesGroup):
     choosing_split_method = State()
     selecting_participants = State()
     entering_ratios = State()
+
+class RegistrationState(StatesGroup):
+    confirm_phone = State()
+    enter_phone = State()
+    enter_bank = State()

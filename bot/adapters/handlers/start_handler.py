@@ -3,10 +3,14 @@ from aiogram.filters import CommandStart, Command
 from aiogram.types import Message
 from aiogram.fsm.context import FSMContext
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
-from bot.adapters.keyboards import get_main_menu_keyboard
+from bot.adapters.keyboards import get_main_menu_keyboard, get_yes_no_keyboard
 from bot.use_cases.user_use_cases import UserUseCase
 from bot.use_cases.table_use_cases import TableUseCase
+from bot.adapters.states import RegistrationState
+from bot.dao.models import User, TableUser
+
 
 router = Router()
 
@@ -14,35 +18,59 @@ router = Router()
 @router.message(CommandStart())
 async def cmd_start(message: Message, session: AsyncSession, state: FSMContext):
     await state.clear()
-    
+
     user_use_case = UserUseCase(session)
+
     await user_use_case.get_or_create_user(
         telegram_id=message.from_user.id,
         username=message.from_user.username,
         first_name=message.from_user.first_name,
-        last_name=message.from_user.last_name
+        last_name=message.from_user.last_name,
     )
-    
+
+    stmt = select(User).filter_by(telegram_id=message.from_user.id)
+    result = await session.execute(stmt)
+    user = result.scalar_one_or_none()
+
+    if not user.phone_number or not user.link_to_pay:
+
+        tg_phone = getattr(message.from_user, "phone_number", None)
+
+        if tg_phone:
+            await state.update_data(tg_phone=tg_phone)
+
+            await state.set_state(RegistrationState.confirm_phone)
+            await message.answer(
+                f"📱 Я нашёл твой номер в Telegram:\n\n"
+                f"<b>{tg_phone}</b>\n\n"
+                f"Подходит ли он для переводов?",
+                reply_markup=get_yes_no_keyboard(),
+                parse_mode="HTML"
+            )
+        else:
+            await state.set_state(RegistrationState.enter_phone)
+            await message.answer(
+                "📱 Введи, пожалуйста, номер телефона для переводов\n\n"
+                "В формате: +79998887766"
+            )
+
+        return
+
     command_args = message.text.split(maxsplit=1)
     if len(command_args) > 1 and command_args[1].startswith("join_"):
         invite_code = command_args[1][5:]
-        
-        from bot.use_cases.table_use_cases import TableUseCase
-        from sqlalchemy import select
-        from bot.dao.models import User, TableUser
-        
-        result = await session.execute(
-            select(User).filter_by(telegram_id=message.from_user.id)
-        )
+
+        stmt = select(User).filter_by(telegram_id=message.from_user.id)
+        result = await session.execute(stmt)
         user = result.scalar_one_or_none()
-        
+
         if not user:
             await message.answer("Ошибка: пользователь не найден. Попробуйте /start")
             return
-        
+
         table_use_case = TableUseCase(session)
         table = await table_use_case.get_table_by_code(invite_code)
-        
+
         if not table:
             await message.answer(
                 "❌ Стол с таким кодом не найден.\n\n"
@@ -50,19 +78,19 @@ async def cmd_start(message: Message, session: AsyncSession, state: FSMContext):
                 reply_markup=get_main_menu_keyboard()
             )
             return
-        
+
         result = await session.execute(
             select(TableUser).filter_by(table_id=table.id, user_id=user.id)
         )
         existing = result.scalar_one_or_none()
-        
+
         if existing:
             await message.answer(
                 f"ℹ️ Вы уже являетесь участником стола '{table.name}'!",
                 reply_markup=get_main_menu_keyboard()
             )
             return
-        
+
         try:
             await table_use_case.join_table(table.id, user.id)
             await message.answer(
@@ -76,39 +104,70 @@ async def cmd_start(message: Message, session: AsyncSession, state: FSMContext):
                 reply_markup=get_main_menu_keyboard()
             )
         return
-    
+
     await message.answer(
         f"👋 Привет, {message.from_user.first_name}!\n\n"
-        "Я бот для разделения счетов. Я помогу тебе:\n"
-        "• Создавать столы для совместных расходов\n"
-        "• Добавлять траты и делить их между участниками\n"
-        "• Рассчитывать, кто и сколько должен\n\n"
-        "Выбери действие из меню:",
+        "Я бот для разделения счетов...",
         reply_markup=get_main_menu_keyboard()
     )
 
+@router.message(RegistrationState.confirm_phone)
+async def confirm_phone(message: Message, state: FSMContext, session: AsyncSession):
+    user_data = await state.get_data()
+    tg_phone = user_data.get("tg_phone")
 
-@router.message(Command("help"))
-async def cmd_help(message: Message):
-    await message.answer(
-        "📖 <b>Помощь по использованию бота</b>\n\n"
-        "<b>Основные команды:</b>\n"
-        "/start - Начать работу с ботом\n"
-        "/help - Показать эту справку\n\n"
-        "<b>Как пользоваться:</b>\n"
-        "1. Создайте стол для совместных расходов\n"
-        "2. Пригласите друзей по ID стола\n"
-        "3. Добавляйте расходы и делите их между участниками\n"
-        "4. Смотрите баланс и статистику\n\n"
-        "Используйте кнопки меню для навигации!",
-        parse_mode="HTML"
+    if message.text == "Да":
+        phone = tg_phone
+    else:
+        await state.set_state(RegistrationState.enter_phone)
+        await message.answer("Введите номер телефона в формате +79998887766")
+        return
+
+    user_use_case = UserUseCase(session)
+    await user_use_case.update_user_phone(
+        telegram_id=message.from_user.id,
+        phone_number=phone
     )
 
+    await state.set_state(RegistrationState.enter_bank)
+    await message.answer("🏦 Укажите ваш приоритетный банк (например: Сбер, Т-Банк):")
 
-@router.message(F.text == "🔙 Назад в главное меню")
-async def back_to_main_menu(message: Message, state: FSMContext):
+
+@router.message(RegistrationState.enter_phone)
+async def enter_phone(message: Message, state: FSMContext, session: AsyncSession):
+
+    phone = message.text.strip()
+
+    if not phone.startswith("+") or len(phone) < 10:
+        await message.answer("❌ Номер некорректен. Попробуйте ещё раз.\nНапример: +79998887766")
+        return
+
+    user_use_case = UserUseCase(session)
+    await user_use_case.update_user_phone(
+        telegram_id=message.from_user.id,
+        phone_number=phone
+    )
+
+    await state.set_state(RegistrationState.enter_bank)
+    await message.answer("🏦 Укажите ваш приоритетный банк (например: Сбер, Т-Банк):")
+
+
+@router.message(RegistrationState.enter_bank)
+async def enter_bank(message: Message, state: FSMContext, session: AsyncSession):
+
+    bank = message.text.strip()
+
+    user_use_case = UserUseCase(session)
+    await user_use_case.update_user_link(
+        telegram_id=message.from_user.id,
+        link_to_pay=bank
+    )
+
     await state.clear()
+
     await message.answer(
-        "Главное меню:",
+        "🎉 Регистрация завершена!\n\n"
+        "Теперь вы можете пользоваться ботом 👍",
         reply_markup=get_main_menu_keyboard()
     )
+

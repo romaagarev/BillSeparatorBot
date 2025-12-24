@@ -90,11 +90,11 @@ async def join_table_finish(message: Message, state: FSMContext, session: AsyncS
         select(User).filter_by(telegram_id=message.from_user.id)
     )
     user = result.scalar_one_or_none()
-    
+
     if not user:
         await message.answer("Ошибка: пользователь не найден. Используйте /start")
         return
-    
+    user_id = user.id
     table_use_case = TableUseCase(session)
     
     table = await table_use_case.get_table_by_code(invite_code)
@@ -111,7 +111,7 @@ async def join_table_finish(message: Message, state: FSMContext, session: AsyncS
     
     from bot.dao.models import TableUser
     result = await session.execute(
-        select(TableUser).filter_by(table_id=table_id, user_id=user.id)
+        select(TableUser).filter_by(table_id=table_id, user_id=user_id)
     )
     existing = result.scalar_one_or_none()
     
@@ -124,7 +124,7 @@ async def join_table_finish(message: Message, state: FSMContext, session: AsyncS
         return
     
     try:
-        await table_use_case.join_table(table_id, user.id)
+        await table_use_case.join_table(table_id, user_id)
         await state.clear()
         await message.answer(
             f"✅ Вы успешно присоединились к столу '{table_name}'!",
@@ -252,7 +252,8 @@ async def leave_table(message: Message, state: FSMContext, session: AsyncSession
         await state.clear()
         await message.answer("Ошибка: стол не найден.", reply_markup=get_main_menu_keyboard())
         return
-    
+
+    table_name = table.name
     table_use_case = TableUseCase(session)
     success = await table_use_case.leave_table(current_table_id, user.id)
     
@@ -260,7 +261,7 @@ async def leave_table(message: Message, state: FSMContext, session: AsyncSession
     
     if success:
         await message.answer(
-            f"✅ Вы покинули стол '{table.name}'.\n\n"
+            f"✅ Вы покинули стол '{table_name}'.\n\n"
             f"Теперь этот стол не будет отображаться в вашем списке.",
             reply_markup=get_main_menu_keyboard()
         )
