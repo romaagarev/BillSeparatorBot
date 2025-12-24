@@ -437,7 +437,16 @@ async def view_participants(message: Message, state: FSMContext, session: AsyncS
         return
     
     from sqlalchemy import select
-    from bot.dao.models import TableUser, User
+    from bot.dao.models import TableUser, User, DiningTable
+    
+    result = await session.execute(
+        select(DiningTable).filter(DiningTable.id == current_table_id)
+    )
+    table = result.scalar_one_or_none()
+    
+    if not table:
+        await message.answer("Ошибка: стол не найден.")
+        return
     
     result = await session.execute(
         select(TableUser, User)
@@ -450,12 +459,20 @@ async def view_participants(message: Message, state: FSMContext, session: AsyncS
         await message.answer("В этом столе пока нет участников.")
         return
     
-    text = "👥 Участники стола:\n\n"
+    bot = message.bot
+    bot_username = (await bot.me()).username
+    invite_link = f"https://t.me/{bot_username}?start=join_{table.invite_code}"
+    
+    text = "👥 <b>Участники стола:</b>\n\n"
     for i, (table_user, user) in enumerate(participants, 1):
         name = user.first_name or user.username or f"User {user.telegram_id}"
         text += f"{i}. {name}\n"
     
-    await message.answer(text, reply_markup=get_table_menu_keyboard())
+    text += f"\n🔗 <b>Ссылка для приглашения:</b>\n{invite_link}\n\n"
+    text += f"🔑 <b>Код приглашения:</b> <code>{table.invite_code}</code>\n\n"
+    text += "<i>Отправьте ссылку или код друзьям, чтобы они присоединились к столу</i>"
+    
+    await message.answer(text, parse_mode="HTML", reply_markup=get_table_menu_keyboard())
 
 
 @router.message(F.text == "📊 Статистика")
