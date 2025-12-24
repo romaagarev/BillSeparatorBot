@@ -366,16 +366,22 @@ async def view_balance(message: Message, state: FSMContext, session: AsyncSessio
         result = await session.execute(
             select(User)
         )
-        users_dict = {u.id: (u.first_name or u.username or f"User {u.telegram_id}") for u in result.scalars().all()}
+        users_dict = {u.id: u for u in result.scalars().all()}
         
         for from_id, to_id, amount in debts:
-            from_name = users_dict.get(from_id, f"User {from_id}")
-            to_name = users_dict.get(to_id, f"User {to_id}")
+            from_user = users_dict.get(from_id)
+            to_user = users_dict.get(to_id)
+            from_name = from_user.first_name or from_user.username or f"User {from_user.telegram_id}" if from_user else f"User {from_id}"
+            to_name = to_user.first_name or to_user.username or f"User {to_user.telegram_id}" if to_user else f"User {to_id}"
             
             if from_id == user.id:
                 text += f"➡️ Вы должны {to_name}: {amount/100:.2f} ₽\n"
+                if to_user and to_user.phone_number and to_user.link_to_pay:
+                    text += f"   📱 Телефон: {to_user.phone_number}\n"
+                    text += f"   🏦 Банк: {to_user.link_to_pay}\n"
+                text += "\n"
             elif to_id == user.id:
-                text += f"⬅️ {from_name} должен вам: {amount/100:.2f} ₽\n"
+                text += f"⬅️ {from_name} должен вам: {amount/100:.2f} ₽\n\n"
             else:
                 text += f"• {from_name} → {to_name}: {amount/100:.2f} ₽\n"
     else:
@@ -409,16 +415,23 @@ async def calculate_debts_handler(message: Message, state: FSMContext, session: 
     from bot.dao.models import User
     
     result = await session.execute(select(User))
-    users_dict = {u.id: (u.first_name or u.username or f"User {u.telegram_id}") for u in result.scalars().all()}
+    users_dict = {u.id: u for u in result.scalars().all()}
     
     text = "💳 <b>Минимизированные переводы для закрытия долгов:</b>\n\n"
     
     for from_id, to_id, amount in debts:
-        from_name = users_dict.get(from_id, f"User {from_id}")
-        to_name = users_dict.get(to_id, f"User {to_id}")
+        from_user = users_dict.get(from_id)
+        to_user = users_dict.get(to_id)
+        from_name = from_user.first_name or from_user.username or f"User {from_user.telegram_id}" if from_user else f"User {from_id}"
+        to_name = to_user.first_name or to_user.username or f"User {to_user.telegram_id}" if to_user else f"User {to_id}"
+        
         text += f"➡️ <b>{from_name}</b> → <b>{to_name}</b>: {amount/100:.2f} ₽\n"
+        if to_user and to_user.phone_number and to_user.link_to_pay:
+            text += f"   📱 Телефон: <code>{to_user.phone_number}</code>\n"
+            text += f"   🏦 Банк: {to_user.link_to_pay}\n"
+        text += "\n"
     
-    text += f"\n<i>Всего переводов: {len(debts)}</i>"
+    text += f"<i>Всего переводов: {len(debts)}</i>"
     
     await message.answer(text, parse_mode="HTML", reply_markup=get_table_menu_keyboard())
 
